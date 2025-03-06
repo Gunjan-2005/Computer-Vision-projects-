@@ -1,0 +1,82 @@
+import cv2
+
+import mediapipe as mp
+import pyautogui
+import numpy as np
+import time
+
+from cv2 import VideoCapture
+
+# Initialize MediaPipe Hands.
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(min_detection_confidence = 0.7, min_tracking_confidence = 0.7)
+mp_draw = mp.solutions.drawing_utils
+
+# Get screen size.
+screen_width, screen_height = pyautogui.size()
+
+# Open Webcam.
+cap = cv2.VideoCapture(0)
+prev_click_time = 0 # To avoid multiple rapid clicks.
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Flip the frame for a mirror effect.
+    frame = cv2.flip(frame,1)
+    h,w, _ = frame.shape # Get frame dimensions.
+
+    # Convert BGR to RGB.
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = hands.process(rgb_frame)
+
+
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            # Draw landmarks on frame.
+            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            # Get normalized coordinates for index finger tip (landmark 8).
+            index_finger = hand_landmarks.landmark[8]
+
+            # Convert normalized coordinates to pixel values in the camera frame.
+            x_cam, y_cam = int (index_finger.x * w), int (index_finger.y * h)
+
+            # Map camera coordinates to screen coordinates.
+            # You might need to fine_tune these interpolation ranges.
+            screen_x = np.interp(x_cam, [0, w], [0, screen_width])
+            screen_y = np.interp(y_cam, [0, h], [0, screen_height])
+
+            # Move the mouse cursor.
+            pyautogui.moveTo(screen_x, screen_y, duration = 0.01)
+
+            # ---Click Detection---
+            # Get thumb tip (landmark 4).
+            thumb = hand_landmarks.landmark[4]
+            x_thumb, y_thumb = int(thumb.x * w), int(thumb.y * h)
+
+            # Calculate the Euclidian distance between index finger tip and thumb tip.
+            distance = np.hypot(x_cam - x_thumb, y_cam - y_thumb)
+
+            # Set a threshold for a click (this might need adjustment).
+            click_threshold = 40 # Adjust depending on your camera setup.
+            current_time = time.time()
+
+            # If distance is below threshold and a little time has passed since the last click:
+            if distance < click_threshold and (current_time - prev_click_time) > 1:
+                pyautogui.click()
+                prev_click_time = current_time
+                cv2.putText(frame, "Click", (x_cam, y_cam-20), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+
+
+    cv2.imshow("Hand Tracking", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'): # Press q to exit.
+        break
+
+
+
+
+cap.release()
+cv2.destroyAllWindows()
